@@ -19,7 +19,8 @@ from qgis.core import (
     QgsField,
     QgsFeature,
     QgsFeatureSink,
-    QgsProject
+    QgsProject,
+    NULL
 )
 from qgis.PyQt.QtCore import QVariant
 
@@ -33,9 +34,9 @@ class Byggfast(QgsProcessingAlgorithm):
         for i in range(len(layers_names)):
             if 'byggnader_sverige_point' in layers_names[i]: 
                 byggPointLayer = layers_names[i]
-            if 'byggnader__by' in layers_names[i]: 
+            if 'by_' in layers_names[i]: 
                 byggPolygonLayer =layers_names[i]
-            if 'fastighetsgrnser__ay' in layers_names[i]: 
+            if 'ay_' in layers_names[i]: 
                 fastPolygonLayer =layers_names[i]
                 
         self.addParameter(QgsProcessingParameterVectorLayer('byggnadpoints', 'ByggnadPoints', types=[QgsProcessing.TypeVectorPoint], defaultValue=byggPointLayer))
@@ -237,14 +238,20 @@ class Byggfast(QgsProcessingAlgorithm):
                         fastighetAttributList = []
                         fastighet_attributes = feature_fastighet.attributes()
                         for name in fastighetAttributeNameList:
-                            fastighetAttributList.append(fastighet_attributes[feature_fastighet.fields().indexFromName(name)])
+                            if fastighet_attributes[feature_fastighet.fields().indexFromName(name)] == NULL:
+                                fastighetAttributList.append(None)
+                            else:
+                                fastighetAttributList.append(fastighet_attributes[feature_fastighet.fields().indexFromName(name)])
 
                         byggnadAttributList = ['']*len(byggnadAttributeNameList)
                         byggnadAttributeDict = dict(zip(byggnadAttributeNameList,byggnadAttributList))
 
                     byggnad_attributes = feature_byggnad.attributes()
                     for name in byggnadAttributeNameList:
-                        attribute = byggnad_attributes[feature_byggnad.fields().indexFromName(name)]
+                        if byggnad_attributes[feature_byggnad.fields().indexFromName(name)] == NULL:
+                            attribute = 'Saknas'
+                        else:
+                            attribute = byggnad_attributes[feature_byggnad.fields().indexFromName(name)]
                         if has_building == 1:
                             byggnadAttributeDict[name]+=(attribute)
                         else:
