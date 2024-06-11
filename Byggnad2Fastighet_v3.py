@@ -1,11 +1,15 @@
 """
-Model exported as python.
 Name : Byggnad2Fastighet_v3
-Group : 
 With QGIS : 33602
 Andrew Mercer, 10.06.2024
 This model is designed for a specific use case and not for general usage.
-It requires vector layers (1 point and 2 polygon) with specific field names.
+Usage is free but almost certainly of limited use.
+It requires vector layers (1 point and 2 polygon).
+The model takes points representing builings, which are not alwyas located 
+within the actual building's geometry, and tries to match these to polygons
+representing the same building and then transfers attributes from the points to 
+cadastral parcels under the assumption that the building polygon
+is correctly placed.
 """
 
 from qgis.core import QgsProcessing
@@ -14,6 +18,7 @@ from qgis.core import QgsProcessingMultiStepFeedback
 from qgis.core import QgsProcessingParameterVectorLayer
 from qgis.core import QgsProcessingParameterFeatureSink
 from qgis.core import QgsProcessingParameterField
+from qgis.core import QgsProcessingUtils
 import processing
 from qgis.core import (
     QgsFields,
@@ -21,9 +26,17 @@ from qgis.core import (
     QgsFeature,
     QgsFeatureSink,
     QgsProject,
-    NULL
+    NULL,
+    QgsPalLayerSettings,
+    QgsTextFormat,
+    QgsTextBackgroundSettings,
+    QgsVectorLayerSimpleLabeling
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import (
+    QVariant
+)
+from PyQt5.QtGui import QFont, QColor
+from qgis.utils import iface
 
 class Byggfast(QgsProcessingAlgorithm):
 
@@ -234,9 +247,7 @@ class Byggfast(QgsProcessingAlgorithm):
         # Fetch the feature "layers" for fastigheter and byggnader. These are so called iterators and must be converted to lists of features otherwise Python shit happens.
         features_fastigheter = list(context.temporaryLayerStore().mapLayers()[outputs['ExtractByLocation']['OUTPUT']].getFeatures())
         features_byggnader_del1 = list(context.temporaryLayerStore().mapLayers()[outputs['Centroids']['OUTPUT']].getFeatures())
-        print("del1 : {}".format(len(features_byggnader_del1)))
         features_byggnader_del2 = list(context.temporaryLayerStore().mapLayers()[outputs['Intersect']['OUTPUT']].getFeatures())
-        print("del2 : {}".format(len(features_byggnader_del2)))
         features_byggnader = features_byggnader_del1 + features_byggnader_del2
         
         source = self.parameterAsSource(
@@ -315,9 +326,26 @@ class Byggfast(QgsProcessingAlgorithm):
                 sink.addFeature(newFeature, QgsFeatureSink.FastInsert)
                 
                 results['BMFastighet'] = dest_id
-                
-        ########################################################################################################
         
+        vlayer = QgsProcessingUtils.mapLayerFromString(results['BMFastighet'], context)
+        vlayer.renderer().symbol().setColor(QColor(150,150,250))
+        vlayer.triggerRepaint()
+        label_settings = QgsPalLayerSettings()
+        #label_settings.drawBackground = True
+        label_settings.fieldName = 'AntalByggnader'
+
+        text_format = QgsTextFormat()
+        background_color = QgsTextBackgroundSettings()
+        background_color.setFillColor(QColor(200,200,255))
+        background_color.setEnabled(True)
+        text_format.setBackground(background_color )
+        label_settings.setFormat(text_format)
+
+        vlayer.setLabeling(QgsVectorLayerSimpleLabeling(label_settings))
+        vlayer.setLabelsEnabled(True)
+        vlayer.triggerRepaint()
+        iface.layerTreeView().refreshLayerSymbology(vlayer.id())
+        ########################################################################################################
         
         return results
 
