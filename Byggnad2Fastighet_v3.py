@@ -27,6 +27,7 @@ from qgis.core import (
     QgsFeatureSink,
     QgsProject,
     NULL,
+    QgsGeometry,
     QgsPalLayerSettings,
     QgsTextFormat,
     QgsTextBackgroundSettings,
@@ -107,6 +108,7 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
 
         # Disjoint
+        print("run Disjoint")
         alg_params = {
             'INPUT': parameters['byggnaderpoints'],
             'INTERSECT': parameters['byggnaderpolygons'],
@@ -120,6 +122,7 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
 
         # Intersect
+        print("run Intersect")
         alg_params = {
             'INPUT': parameters['byggnaderpoints'],
             'INTERSECT': parameters['byggnaderpolygons'],
@@ -133,6 +136,7 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
 
         # Snap geometries to layer
+        print("run Snap geometries")
         alg_params = {
             'BEHAVIOR': 3,  # Prefer closest point, don't insert new vertices
             'INPUT': outputs['Disjoint']['OUTPUT'], #parameters['byggnadpoints'],
@@ -148,6 +152,7 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
 
         # Buffer
+        print("run Buffer")
         alg_params = {
             'DISSOLVE': False,
             'DISTANCE': 0.1,
@@ -166,6 +171,7 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
 
         # Intersection
+        print("run Intersection")
         alg_params = {
             'GRID_SIZE': None,
             'INPUT': parameters['byggnaderpolygons'],
@@ -184,6 +190,7 @@ class Byggfast(QgsProcessingAlgorithm):
 
 
         # Centroids
+        print("run Centroids")
         alg_params = {
             'ALL_PARTS': False,
             'INPUT': outputs['Intersection']['OUTPUT'],
@@ -197,6 +204,7 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
 
         # Create spatial index
+        print("run Spatial Index of Centroids")
         alg_params = {
             'INPUT': outputs['Centroids']['OUTPUT']
         }
@@ -207,6 +215,7 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
             
         # Merge vector layers
+        print("run Merge Point Vectors")
         alg_params = {
             'CRS': 'ProjectCrs',
             'LAYERS': [outputs['Centroids']['OUTPUT'],outputs['Intersect']['OUTPUT']],
@@ -219,6 +228,7 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
             
         # Extract by location
+        print("run Extract by location Fastigheter and merged Byggnad Points")
         alg_params = {
             'INPUT': parameters['fastigheterpolygons'],
             'INTERSECT': outputs['remergePoints']['OUTPUT'],
@@ -233,6 +243,7 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
 
         # Create spatial index
+        print("run Spatial Index")
         alg_params = {
             'INPUT': outputs['ExtractByLocation']['OUTPUT']
         }
@@ -245,6 +256,7 @@ class Byggfast(QgsProcessingAlgorithm):
         
         #######################################################################################################  
         # Fetch the feature "layers" for fastigheter and byggnader. These are so called iterators and must be converted to lists of features otherwise Python shit happens.
+        print("run My code")
         features_fastigheter = list(context.temporaryLayerStore().mapLayers()[outputs['ExtractByLocation']['OUTPUT']].getFeatures())
         features_byggnader_del1 = list(context.temporaryLayerStore().mapLayers()[outputs['Centroids']['OUTPUT']].getFeatures())
         features_byggnader_del2 = list(context.temporaryLayerStore().mapLayers()[outputs['Intersect']['OUTPUT']].getFeatures())
@@ -255,8 +267,6 @@ class Byggfast(QgsProcessingAlgorithm):
             'fastigheterpolygons',
             context
         )
-        # outputs['Intersect']['OUTPUT']
-        
         
         # Create attribute fields for the new layer 
         newFields = QgsFields()  
@@ -272,15 +282,19 @@ class Byggfast(QgsProcessingAlgorithm):
             newFields.append(QgsField(byggnadAttributeNameList[j], QVariant.String))
         
         # Loop through "fastigheter" features
+        print("run Loop through 'fastigheter' features")
         spacer ='; '
         fastighetCount = 0
         for feature_fastighet in features_fastigheter:
             fastighet_geometry = feature_fastighet.geometry()
+            fastighet_geometry_engine = QgsGeometry.createGeometryEngine(fastighet_geometry.constGet()) # QgsGeometryEngine should speed up intersect
+            fastighet_geometry_engine.prepareGeometry()
             # Loop through "byggnader" features. has_building keeps track of i) if a fastighet is associated with a byggnad and how many
             has_building = 0
             for feature_byggnad in features_byggnader:
                 # Is the building within the property boundary? If "yes" check building count, if this is first building for this property cretae a new feature from the property
-                if fastighet_geometry.contains(feature_byggnad.geometry()):
+                #if fastighet_geometry.contains(feature_byggnad.geometry()):
+                if fastighet_geometry_engine.intersects(feature_byggnad.geometry().constGet()):
                     has_building += 1
                     if has_building == 1:
                         fastighetCount += 1
