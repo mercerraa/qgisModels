@@ -1,5 +1,5 @@
 """
-Name : Byggnad2Fastighet_v3
+Name : Byggnad2Fastighet_v3_1
 With QGIS : 33602
 Andrew Mercer, 10.06.2024
 This model is designed for a specific use case and not for general usage.
@@ -27,7 +27,6 @@ from qgis.core import (
     QgsFeatureSink,
     QgsProject,
     NULL,
-    QgsGeometry,
     QgsPalLayerSettings,
     QgsTextFormat,
     QgsTextBackgroundSettings,
@@ -77,6 +76,8 @@ class Byggfast(QgsProcessingAlgorithm):
         results = {}
         outputs = {}
 
+        ###############################################################################################################
+
         # Create spatial index
         alg_params = {
             'INPUT': parameters['byggnaderpoints']
@@ -106,23 +107,9 @@ class Byggfast(QgsProcessingAlgorithm):
         feedback.setCurrentStep(3)
         if feedback.isCanceled():
             return {}
+        ###############################################################################################################
 
-        # Disjoint
-        print("run Disjoint")
-        alg_params = {
-            'INPUT': parameters['byggnaderpoints'],
-            'INTERSECT': parameters['byggnaderpolygons'],
-            'PREDICATE': [2],  # disjoint
-            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-        }
-        outputs['Disjoint'] = processing.run('native:extractbylocation', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-
-        feedback.setCurrentStep(4)
-        if feedback.isCanceled():
-            return {}
-
-        # Intersect
-        print("run Intersect")
+        # Intersect - Which points are inside building polygons. Disjoint and Intersect return only trues so each must be run individually
         alg_params = {
             'INPUT': parameters['byggnaderpoints'],
             'INTERSECT': parameters['byggnaderpolygons'],
@@ -131,12 +118,26 @@ class Byggfast(QgsProcessingAlgorithm):
         }
         outputs['Intersect'] = processing.run('native:extractbylocation', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
+        feedback.setCurrentStep(4)
+        if feedback.isCanceled():
+            return {}
+        
+        ###################################################
+
+        # Disjoint - Which points are outside building polygons
+        alg_params = {
+            'INPUT': parameters['byggnaderpoints'],
+            'INTERSECT': parameters['byggnaderpolygons'],
+            'PREDICATE': [2],  # disjoint
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['Disjoint'] = processing.run('native:extractbylocation', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
         feedback.setCurrentStep(5)
         if feedback.isCanceled():
             return {}
 
-        # Snap geometries to layer
-        print("run Snap geometries")
+        # Snap geometries to layer - points outside building polygons snap to nearest building polygon
         alg_params = {
             'BEHAVIOR': 3,  # Prefer closest point, don't insert new vertices
             'INPUT': outputs['Disjoint']['OUTPUT'], #parameters['byggnadpoints'],
@@ -151,8 +152,7 @@ class Byggfast(QgsProcessingAlgorithm):
         if feedback.isCanceled():
             return {}
 
-        # Buffer
-        print("run Buffer")
+        # Buffer - Create buffer around point on edge of building, buffer half inside and half outside
         alg_params = {
             'DISSOLVE': False,
             'DISTANCE': 0.1,
@@ -170,8 +170,7 @@ class Byggfast(QgsProcessingAlgorithm):
         if feedback.isCanceled():
             return {}
 
-        # Intersection
-        print("run Intersection")
+        # Intersection - Get the part of the buffer that is within the building
         alg_params = {
             'GRID_SIZE': None,
             'INPUT': parameters['byggnaderpolygons'],
@@ -188,9 +187,7 @@ class Byggfast(QgsProcessingAlgorithm):
         if feedback.isCanceled():
             return {}
 
-
-        # Centroids
-        print("run Centroids")
+        # Centroids - Set a point that should now be within the building
         alg_params = {
             'ALL_PARTS': False,
             'INPUT': outputs['Intersection']['OUTPUT'],
@@ -204,7 +201,6 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
 
         # Create spatial index
-        print("run Spatial Index of Centroids")
         alg_params = {
             'INPUT': outputs['Centroids']['OUTPUT']
         }
@@ -213,9 +209,10 @@ class Byggfast(QgsProcessingAlgorithm):
         feedback.setCurrentStep(10)
         if feedback.isCanceled():
             return {}
-            
+        
+        ###################################################
+
         # Merge vector layers
-        print("run Merge Point Vectors")
         alg_params = {
             'CRS': 'ProjectCrs',
             'LAYERS': [outputs['Centroids']['OUTPUT'],outputs['Intersect']['OUTPUT']],
@@ -228,7 +225,6 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
             
         # Extract by location
-        print("run Extract by location Fastigheter and merged Byggnad Points")
         alg_params = {
             'INPUT': parameters['fastigheterpolygons'],
             'INTERSECT': outputs['remergePoints']['OUTPUT'],
@@ -243,7 +239,6 @@ class Byggfast(QgsProcessingAlgorithm):
             return {}
 
         # Create spatial index
-        print("run Spatial Index")
         alg_params = {
             'INPUT': outputs['ExtractByLocation']['OUTPUT']
         }
@@ -253,10 +248,9 @@ class Byggfast(QgsProcessingAlgorithm):
         if feedback.isCanceled():
             return {}
             
+        ###############################################################################################################
         
-        #######################################################################################################  
         # Fetch the feature "layers" for fastigheter and byggnader. These are so called iterators and must be converted to lists of features otherwise Python shit happens.
-        print("run My code")
         features_fastigheter = list(context.temporaryLayerStore().mapLayers()[outputs['ExtractByLocation']['OUTPUT']].getFeatures())
         features_byggnader_del1 = list(context.temporaryLayerStore().mapLayers()[outputs['Centroids']['OUTPUT']].getFeatures())
         features_byggnader_del2 = list(context.temporaryLayerStore().mapLayers()[outputs['Intersect']['OUTPUT']].getFeatures())
@@ -267,6 +261,8 @@ class Byggfast(QgsProcessingAlgorithm):
             'fastigheterpolygons',
             context
         )
+        # outputs['Intersect']['OUTPUT']
+        
         
         # Create attribute fields for the new layer 
         newFields = QgsFields()  
@@ -282,19 +278,15 @@ class Byggfast(QgsProcessingAlgorithm):
             newFields.append(QgsField(byggnadAttributeNameList[j], QVariant.String))
         
         # Loop through "fastigheter" features
-        print("run Loop through 'fastigheter' features")
         spacer ='; '
         fastighetCount = 0
         for feature_fastighet in features_fastigheter:
             fastighet_geometry = feature_fastighet.geometry()
-            fastighet_geometry_engine = QgsGeometry.createGeometryEngine(fastighet_geometry.constGet()) # QgsGeometryEngine should speed up intersect
-            fastighet_geometry_engine.prepareGeometry()
             # Loop through "byggnader" features. has_building keeps track of i) if a fastighet is associated with a byggnad and how many
             has_building = 0
             for feature_byggnad in features_byggnader:
                 # Is the building within the property boundary? If "yes" check building count, if this is first building for this property cretae a new feature from the property
-                #if fastighet_geometry.contains(feature_byggnad.geometry()):
-                if fastighet_geometry_engine.intersects(feature_byggnad.geometry().constGet()):
+                if fastighet_geometry.contains(feature_byggnad.geometry()):
                     has_building += 1
                     if has_building == 1:
                         fastighetCount += 1
@@ -364,10 +356,10 @@ class Byggfast(QgsProcessingAlgorithm):
         return results
 
     def name(self):
-        return 'Byggnad2Fastighet_v3'
+        return 'Byggnad2Fastighet_v3_1'
 
     def displayName(self):
-        return 'Byggnad2Fastighet_v3'
+        return 'Byggnad2Fastighet_v3_1'
 
     def group(self):
         return ''
